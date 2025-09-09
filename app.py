@@ -22,7 +22,7 @@ with st.sidebar:
             "Uniforme",
             "Sesgada a la derecha",
             "Sesgada a la izquierda",
-            "Normal con valores extremos",   # 🚀 nueva opción
+            "Normal con valores extremos",
         ],
         index=0
     )
@@ -70,20 +70,16 @@ def generate_sample(p: dict) -> np.ndarray:
 
     elif p["dist"] == "Normal con valores extremos":
         mu, sigma = p["mu"], p["sigma"]
-        prop_out = p["prop_out"]
-        k = p["k_sigmas"]
-        lado = p["lado"]
-
+        prop_out = p["prop_out"]; k = p["k_sigmas"]; lado = p["lado"]
         n_out = max(1, int(round(n * prop_out / 100.0))) if prop_out > 0 else 0
         n_base = n - n_out
         base = r.normal(mu, sigma, n_base)
-
         if n_out > 0:
             if lado == "derecha":
                 outs = np.full(n_out, mu + k * sigma, dtype=float)
             elif lado == "izquierda":
                 outs = np.full(n_out, mu - k * sigma, dtype=float)
-            else:  # ambos
+            else:
                 n_right = n_out // 2
                 n_left = n_out - n_right
                 outs = np.concatenate([
@@ -145,7 +141,6 @@ xmin, xmax = float(np.min(data)), float(np.max(data))
 if xmax == xmin:
     xmax = xmin + 1.0
 
-# Densidad para estimar rango Y
 hist_density, _ = np.histogram(data, bins=nbins, density=True)
 peak_hist = float(hist_density.max()) if len(hist_density) else 1.0
 
@@ -178,12 +173,16 @@ if xs_dense is not None:
     fig.add_trace(go.Scatter(x=xs_dense, y=dens_for_peak, mode="lines", name="Densidad (KDE)"))
 
 # Líneas verticales con colores
-fig.add_vline(x=media,   line_width=2, line_dash="dash", line_color="red")
-fig.add_vline(x=mediana, line_width=2, line_dash="dash", line_color="blue")
-fig.add_vline(x=moda_x,  line_width=2, line_dash="dash", line_color="green")
+COLOR_MEDIA = "red"
+COLOR_MEDIANA = "blue"
+COLOR_MODA = "green"
+
+fig.add_vline(x=media,   line_width=2, line_dash="dash", line_color=COLOR_MEDIA)
+fig.add_vline(x=mediana, line_width=2, line_dash="dash", line_color=COLOR_MEDIANA)
+fig.add_vline(x=moda_x,  line_width=2, line_dash="dash", line_color=COLOR_MODA)
 
 fig.update_layout(
-    autosize=True,        # 🔑 responsive
+    autosize=True,    # responsive
     height=420,
     bargap=0.05,
     title=f"Distribución — n = {data.size}",
@@ -196,20 +195,39 @@ fig.update_layout(
 fig.update_xaxes(range=[xmin, xmax])
 fig.update_yaxes(range=[0, ymax])
 
-# Render responsive en Streamlit
 st.plotly_chart(fig, use_container_width=True, theme=None)
 
 # -----------------------------
-# Métricas e interpretación
+# Estadísticos (colores que coinciden con el gráfico)
 # -----------------------------
-st.subheader("📌 Estadísticos")
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Media",   f"{media:.2f}")
-c2.metric("Mediana", f"{mediana:.2f}")
-c3.metric("Moda*",   f"{moda_x:.2f}")
-c4.metric("Sesgo",   f"{sesgo:.2f}")
-st.caption("*En datos continuos la moda se estima por KDE o histograma (pico de mayor densidad).")
+red, blue, green, gray = "#e11d48", "#2563eb", "#16a34a", "#374151"
 
+stats_html = f"""
+<div style="display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:12px;">
+  <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;">
+    <div style="font:600 12px/1.2 system-ui;color:{red};text-transform:uppercase;">Media</div>
+    <div style="font:700 26px/1.1 system-ui;color:{red};">{media:.2f}</div>
+  </div>
+  <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;">
+    <div style="font:600 12px/1.2 system-ui;color:{blue};text-transform:uppercase;">Mediana</div>
+    <div style="font:700 26px/1.1 system-ui;color:{blue};">{mediana:.2f}</div>
+  </div>
+  <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;">
+    <div style="font:600 12px/1.2 system-ui;color:{green};text-transform:uppercase;">Moda*</div>
+    <div style="font:700 26px/1.1 system-ui;color:{green};">{moda_x:.2f}</div>
+  </div>
+  <div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:10px 12px;">
+    <div style="font:600 12px/1.2 system-ui;color:{gray};text-transform:uppercase;">Sesgo</div>
+    <div style="font:700 26px/1.1 system-ui;color:{gray};">{sesgo:.2f}</div>
+  </div>
+</div>
+<p style="margin-top:6px;color:#6b7280;font:12px/1.4 system-ui;">*En datos continuos la moda se estima por KDE o histograma.</p>
+"""
+st.markdown(stats_html, unsafe_allow_html=True)
+
+# -----------------------------
+# Interpretación
+# -----------------------------
 st.markdown("---")
 st.subheader("🧠 Interpretación en estos datos")
 diff_mm = media - mediana
