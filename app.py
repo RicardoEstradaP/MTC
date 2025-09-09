@@ -42,8 +42,7 @@ with st.sidebar:
             min_value=0.1, max_value=1.5, value=0.6, step=0.05,
             help="Controla cuán asimétrica es la distribución."
         )
-        # Centro objetivo solo para que no 'se vaya' muy lejos al graficar
-        centro = st.number_input("Centro aproximado (para ubicar la masa principal)", value=50.0, step=1.0)
+        centro = st.number_input("Centro aproximado", value=50.0, step=1.0)
 
 # -----------------------------
 # Generación de datos
@@ -52,22 +51,17 @@ if dist == "Normal":
     data = np.random.normal(mu, sigma, n)
 
 elif dist == "Uniforme":
-    a_eff = a
-    b_eff = b
-    if b_eff <= a_eff:
+    if b <= a:
         st.stop()
-    data = np.random.uniform(a_eff, b_eff, n)
+    data = np.random.uniform(a, b, n)
 
 elif dist == "Sesgada a la derecha":
-    # Lognormal con media log=0 y sigma=skew_intensity, luego reescalamos al 'centro' indicado
     raw = np.random.lognormal(mean=0.0, sigma=skew_intensity, size=n)
-    # centramos cerca de 'centro' manteniendo forma (ajuste lineal a [centro-20, centro+20])
     lo, hi = np.percentile(raw, [5, 95])
     span = max(hi - lo, 1e-6)
     data = (raw - lo) / span * 40 + (centro - 20)
 
 elif dist == "Sesgada a la izquierda":
-    # Negativo de lognormal para sesgo a la izquierda, luego reescalamos alrededor de 'centro'
     raw = -np.random.lognormal(mean=0.0, sigma=skew_intensity, size=n)
     lo, hi = np.percentile(raw, [5, 95])
     span = max(hi - lo, 1e-6)
@@ -85,7 +79,7 @@ if n_obs == 0:
 media = float(np.mean(data))
 mediana = float(np.median(data))
 
-# Moda aproximada para datos continuos por KDE (respaldo: histograma)
+# Moda aproximada
 try:
     kde = gaussian_kde(data)
     xs = np.linspace(np.min(data), np.max(data), 1024)
@@ -98,7 +92,6 @@ except Exception:
     moda_x = float(centers[np.argmax(counts)])
     moda_method = "Histograma"
 
-# Sesgo (skewness) e IQR para contextualizar
 sesgo = float(skew(data))
 q1, q3 = np.percentile(data, [25, 75])
 iqr = float(q3 - q1) if q3 > q1 else float(np.std(data))
@@ -107,7 +100,7 @@ diff_mm = media - mediana
 # -----------------------------
 # Gráfico
 # -----------------------------
-nbins = int(np.clip(np.sqrt(n_obs), 10, 80))  # regla ~sqrt(n)
+nbins = int(np.clip(np.sqrt(n_obs), 10, 80))
 fig = go.Figure()
 
 fig.add_trace(go.Histogram(
@@ -118,7 +111,6 @@ fig.add_trace(go.Histogram(
     opacity=0.6
 ))
 
-# KDE si es posible
 try:
     xs_plot = np.linspace(np.min(data), np.max(data), 512)
     kde_plot = gaussian_kde(data)
@@ -127,10 +119,19 @@ try:
 except Exception:
     pass
 
-# Líneas verticales
-fig.add_vline(x=media, line_width=2, line_dash="dash", annotation_text=f"Media: {media:.2f}", annotation_position="top")
-fig.add_vline(x=mediana, line_width=2, line_dash="dash", annotation_text=f"Mediana: {mediana:.2f}", annotation_position="top")
-fig.add_vline(x=moda_x, line_width=2, line_dash="dash", annotation_text=f"Moda*: {moda_x:.2f}", annotation_position="top")
+# Líneas verticales con colores diferentes
+fig.add_vline(
+    x=media, line_width=2, line_dash="dash", line_color="red",
+    annotation_text=f"Media: {media:.2f}", annotation_position="top"
+)
+fig.add_vline(
+    x=mediana, line_width=2, line_dash="dash", line_color="blue",
+    annotation_text=f"Mediana: {mediana:.2f}", annotation_position="top"
+)
+fig.add_vline(
+    x=moda_x, line_width=2, line_dash="dash", line_color="green",
+    annotation_text=f"Moda*: {moda_x:.2f}", annotation_position="top"
+)
 
 fig.update_layout(
     bargap=0.05,
@@ -154,50 +155,31 @@ with col2:
     st.metric("Mediana (Q2)", f"{mediana:,.3f}")
     st.metric("Moda* (aprox.)", f"{moda_x:,.3f}")
     st.metric("Sesgo (skewness)", f"{sesgo:,.3f}")
-    st.caption("*En datos continuos la moda se estima por KDE o histograma (pico de mayor densidad).")
+    st.caption("*En datos continuos la moda se estima por KDE o histograma.")
 
 # -----------------------------
-# Interpretación guiada (dinámica)
+# Interpretación guiada
 # -----------------------------
 st.markdown("---")
-st.subheader("🧠 ¿Qué nos dicen tus medidas *en estos datos*?")
+st.subheader("🧠 ¿Qué nos dicen tus medidas en estos datos?")
 interpretaciones = []
 
-# Media vs Mediana
 if abs(diff_mm) < 1e-9:
-    interpretaciones.append("- **Media y mediana son prácticamente iguales** → la distribución parece bastante **simétrica**.")
+    interpretaciones.append("- Media y mediana son prácticamente iguales → la distribución es **simétrica**.")
 elif diff_mm > 0:
-    interpretaciones.append("- **Media > Mediana** → hay más **cola hacia valores grandes** (tendencia a **sesgo a la derecha**).")
+    interpretaciones.append("- Media > Mediana → hay más cola hacia valores grandes (**sesgo a la derecha**).")
 else:
-    interpretaciones.append("- **Media < Mediana** → hay más **cola hacia valores pequeños** (tendencia a **sesgo a la izquierda**).")
+    interpretaciones.append("- Media < Mediana → hay más cola hacia valores pequeños (**sesgo a la izquierda**).")
 
-# Orden típico según sesgo
 if sesgo > 0.1:
-    interpretaciones.append("- Orden típico esperado con sesgo a la derecha: **Moda < Mediana < Media**.")
+    interpretaciones.append("- Orden típico: Moda < Mediana < Media.")
 elif sesgo < -0.1:
-    interpretaciones.append("- Orden típico esperado con sesgo a la izquierda: **Media < Mediana < Moda**.")
+    interpretaciones.append("- Orden típico: Media < Mediana < Moda.")
 else:
-    interpretaciones.append("- Orden típico con simetría: **Media ≈ Mediana ≈ Moda**.")
+    interpretaciones.append("- Orden típico: Media ≈ Mediana ≈ Moda.")
 
-# Magnitud relativa de la diferencia media-mediana respecto al IQR
-if iqr > 0:
-    rel = abs(diff_mm) / iqr
-    if rel < 0.05:
-        interpretaciones.append(f"- La diferencia |Media−Mediana| es **muy pequeña** respecto al IQR ({rel:.2%}) → **asimetría leve**.")
-    elif rel < 0.20:
-        interpretaciones.append(f"- La diferencia |Media−Mediana| es **moderada** respecto al IQR ({rel:.2%}) → **asimetría moderada**.")
-    else:
-        interpretaciones.append(f"- La diferencia |Media−Mediana| es **grande** respecto al IQR ({rel:.2%}) → **asimetría marcada**.")
-
-# Lectura conceptual de cada medida con sus valores
-interpretaciones.append(
-    f"- **Media ({media:.2f})**: punto de *equilibrio* que se ajusta a todos los valores; **sensible** a valores extremos."
-)
-interpretaciones.append(
-    f"- **Mediana ({mediana:.2f})**: el **centro** (50% debajo y 50% arriba); **robusta** ante valores extremos."
-)
-interpretaciones.append(
-    f"- **Moda aprox. ({moda_x:.2f})**: zona de **mayor frecuencia** observada (estimación por {moda_method})."
-)
+interpretaciones.append(f"- Media ({media:.2f}): punto de equilibrio, sensible a valores extremos.")
+interpretaciones.append(f"- Mediana ({mediana:.2f}): centro de los datos, robusta ante valores extremos.")
+interpretaciones.append(f"- Moda ({moda_x:.2f}): zona de mayor frecuencia (estimada por {moda_method}).")
 
 st.markdown("\n".join(interpretaciones))
