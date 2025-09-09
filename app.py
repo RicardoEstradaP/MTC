@@ -20,7 +20,7 @@ with st.sidebar:
         ["Normal", "Uniforme", "Sesgada a la derecha", "Sesgada a la izquierda"],
         index=0
     )
-    n = st.slider("n (tamaño de muestra)", min_value=20, max_value=5000, value=500, step=10)
+    n = st.slider("n (tamaño de muestra)", 20, 5000, 500, step=10)
 
     params = {"dist": dist, "n": int(n)}
 
@@ -42,7 +42,7 @@ with st.sidebar:
     generar = st.button("🔄 Generar/Actualizar muestra")
 
 # -----------------------------
-# Generación y persistencia
+# Generación de datos
 # -----------------------------
 def generate_sample(p):
     n = p["n"]
@@ -67,7 +67,6 @@ if "data" not in st.session_state:
 if "last_params" not in st.session_state:
     st.session_state.last_params = None
 
-# Sólo regenerar cuando el usuario lo pida o no haya datos
 if generar or st.session_state.data.size == 0:
     st.session_state.data = generate_sample(params)
     st.session_state.last_params = params.copy()
@@ -82,7 +81,6 @@ if data.size == 0:
 media = float(np.mean(data))
 mediana = float(np.median(data))
 
-# Moda aproximada (KDE; respaldo histograma)
 try:
     kde = gaussian_kde(data)
     xs = np.linspace(np.min(data), np.max(data), 1024)
@@ -109,7 +107,6 @@ bin_edges = np.linspace(xmin, xmax, nbins + 1)
 hist_density, _ = np.histogram(data, bins=bin_edges, density=True)
 peak_hist = float(hist_density.max()) if len(hist_density) else 1.0
 
-# KDE pico (opcional)
 peak_kde = 0.0
 try:
     xs_dense = np.linspace(xmin, xmax, 1024)
@@ -126,7 +123,7 @@ if ymax <= 0:
 # -----------------------------
 # Figura Plotly (no responsive)
 # -----------------------------
-FIG_W, FIG_H = 900, 520  # tamaño fijo
+FIG_W, FIG_H = 900, 520
 
 fig = go.Figure()
 fig.add_trace(go.Histogram(
@@ -139,7 +136,6 @@ fig.add_trace(go.Histogram(
 if xs_dense is not None:
     fig.add_trace(go.Scatter(x=xs_dense, y=dens_for_peak, mode="lines", name="Densidad (KDE)"))
 
-# Líneas de tendencia central
 fig.add_vline(x=media, line_width=2, line_dash="dash", line_color="red",
               annotation_text=f"Media: {media:.2f}", annotation_position="top")
 fig.add_vline(x=mediana, line_width=2, line_dash="dash", line_color="blue",
@@ -152,21 +148,29 @@ fig.update_layout(
     bargap=0.05,
     title=f"Distribución — n = {data.size}",
     xaxis_title="Valor", yaxis_title="Densidad",
-    margin=dict(l=50, r=20, t=60, b=50)
+    margin=dict(l=60, r=120, t=60, b=60)  # 🔥 margen derecho ampliado
 )
 fig.update_xaxes(range=[xmin, xmax], fixedrange=True)
 fig.update_yaxes(range=[0, ymax], fixedrange=True)
 
-# ——— Render como HTML FIJO (sin responsive) ———
+# --- Render como HTML fijo (sin recorte a la derecha) ---
 html = fig.to_html(full_html=False, include_plotlyjs="cdn",
                    config={"responsive": False, "displaylogo": False})
+
 components.html(
     f"""
-    <div style="width:{FIG_W}px;height:{FIG_H+20}px;overflow:hidden;margin:auto;">
+    <div style="
+        width:{FIG_W + 40}px;   /* ancho un poco mayor */
+        height:{FIG_H + 60}px;
+        margin:auto;
+        padding-right:30px;     /* espacio extra a la derecha */
+        overflow:visible;       /* evita corte del borde derecho */
+    ">
       {html}
     </div>
     """,
-    height=FIG_H + 40, scrolling=False
+    height=FIG_H + 80,
+    scrolling=False
 )
 
 # -----------------------------
@@ -179,26 +183,3 @@ c2.metric("Mediana", f"{mediana:.2f}")
 c3.metric("Moda*", f"{moda_x:.2f}")
 c4.metric("Sesgo", f"{sesgo:.2f}")
 st.caption("*En datos continuos la moda se estima por KDE o histograma.")
-
-st.markdown("---")
-st.subheader("🧠 ¿Qué nos dicen tus medidas en estos datos?")
-interpret = []
-diff_mm = media - mediana
-if abs(diff_mm) < 1e-9:
-    interpret.append("- Media y mediana son prácticamente iguales → distribución **simétrica**.")
-elif diff_mm > 0:
-    interpret.append("- Media > Mediana → cola hacia valores grandes (**sesgo a la derecha**).")
-else:
-    interpret.append("- Media < Mediana → cola hacia valores pequeños (**sesgo a la izquierda**).")
-
-if sesgo > 0.1:
-    interpret.append("- Orden típico: Moda < Mediana < Media.")
-elif sesgo < -0.1:
-    interpret.append("- Orden típico: Media < Mediana < Moda.")
-else:
-    interpret.append("- Orden típico: Media ≈ Mediana ≈ Moda.")
-
-interpret.append(f"- Media ({media:.2f}): punto de equilibrio, sensible a valores extremos.")
-interpret.append(f"- Mediana ({mediana:.2f}): centro de los datos, robusta a valores extremos.")
-interpret.append(f"- Moda ({moda_x:.2f}): zona de mayor frecuencia (estimada por {moda_method}).")
-st.markdown("\n".join(interpret))
