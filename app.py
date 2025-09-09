@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="Tendencia central: media, mediana y moda", layout="wide")
 
 st.title("📊 Tendencia central: media, mediana y moda")
-st.caption("Vista con tamaño FIJO para evitar distorsiones al adaptar la ventana (útil en Moodle/iframes).")
+st.caption("Vista con tamaño fijo y scroll horizontal opcional para evitar recortes en Moodle/iframes.")
 
 # -----------------------------
 # Controles
@@ -21,6 +21,10 @@ with st.sidebar:
         index=0
     )
     n = st.slider("n (tamaño de muestra)", 20, 5000, 500, step=10)
+
+    # Permite ajustar el ancho sin editar código
+    fig_w = st.slider("Ancho del gráfico (px)", 700, 1400, 980, step=10)
+    fig_h = 520
 
     params = {"dist": dist, "n": int(n)}
 
@@ -107,6 +111,7 @@ bin_edges = np.linspace(xmin, xmax, nbins + 1)
 hist_density, _ = np.histogram(data, bins=bin_edges, density=True)
 peak_hist = float(hist_density.max()) if len(hist_density) else 1.0
 
+# KDE pico (opcional)
 peak_kde = 0.0
 try:
     xs_dense = np.linspace(xmin, xmax, 1024)
@@ -123,8 +128,6 @@ if ymax <= 0:
 # -----------------------------
 # Figura Plotly (no responsive)
 # -----------------------------
-FIG_W, FIG_H = 900, 520
-
 fig = go.Figure()
 fig.add_trace(go.Histogram(
     x=data,
@@ -136,40 +139,51 @@ fig.add_trace(go.Histogram(
 if xs_dense is not None:
     fig.add_trace(go.Scatter(x=xs_dense, y=dens_for_peak, mode="lines", name="Densidad (KDE)"))
 
-fig.add_vline(x=media, line_width=2, line_dash="dash", line_color="red",
-              annotation_text=f"Media: {media:.2f}", annotation_position="top")
-fig.add_vline(x=mediana, line_width=2, line_dash="dash", line_color="blue",
-              annotation_text=f"Mediana: {mediana:.2f}", annotation_position="top")
-fig.add_vline(x=moda_x, line_width=2, line_dash="dash", line_color="green",
-              annotation_text=f"Moda*: {moda_x:.2f}", annotation_position="top")
+# Líneas verticales (colores)
+fig.add_vline(x=media, line_width=2, line_dash="dash", line_color="red")
+fig.add_vline(x=mediana, line_width=2, line_dash="dash", line_color="blue")
+fig.add_vline(x=moda_x, line_width=2, line_dash="dash", line_color="green")
+
+# Anotaciones fuera del área de trazado (evita cortes)
+annotations = [
+    dict(x=media, y=1.02, xref="x", yref="paper", text=f"Media: {media:.2f}", showarrow=False, font=dict(size=12, color="red")),
+    dict(x=mediana, y=1.06, xref="x", yref="paper", text=f"Mediana: {mediana:.2f}", showarrow=False, font=dict(size=12, color="blue")),
+    dict(x=moda_x, y=1.10, xref="x", yref="paper", text=f"Moda*: {moda_x:.2f}", showarrow=False, font=dict(size=12, color="green")),
+]
 
 fig.update_layout(
-    width=FIG_W, height=FIG_H, autosize=False,
+    width=fig_w, height=fig_h, autosize=False,
     bargap=0.05,
     title=f"Distribución — n = {data.size}",
     xaxis_title="Valor", yaxis_title="Densidad",
-    margin=dict(l=60, r=120, t=60, b=60)  # 🔥 margen derecho ampliado
+    margin=dict(l=70, r=160, t=80, b=70),  # margen derecho amplio
+    paper_bgcolor="white", plot_bgcolor="white",
+    annotations=annotations,
 )
 fig.update_xaxes(range=[xmin, xmax], fixedrange=True)
 fig.update_yaxes(range=[0, ymax], fixedrange=True)
 
-# --- Render como HTML fijo (sin recorte a la derecha) ---
+# -----------------------------
+# Render HTML fijo con scroll horizontal si hace falta
+# -----------------------------
 html = fig.to_html(full_html=False, include_plotlyjs="cdn",
                    config={"responsive": False, "displaylogo": False})
 
+outer_w = fig_w + 80   # ancho mínimo del contenedor interno
 components.html(
     f"""
-    <div style="
-        width:{FIG_W + 40}px;   /* ancho un poco mayor */
-        height:{FIG_H + 60}px;
-        margin:auto;
-        padding-right:30px;     /* espacio extra a la derecha */
-        overflow:visible;       /* evita corte del borde derecho */
-    ">
-      {html}
+    <div style="width:100%; overflow-x:auto; margin:auto;">
+      <div style="
+        width:{outer_w}px;
+        max-width:none;
+        margin:0 auto;
+        padding-right:40px;   /* espacio extra lado derecho */
+      ">
+        {html}
+      </div>
     </div>
     """,
-    height=FIG_H + 80,
+    height=fig_h + 120,
     scrolling=False
 )
 
