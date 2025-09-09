@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -6,100 +7,71 @@ from scipy.stats import gaussian_kde, skew
 
 st.set_page_config(page_title="Tendencia central: media, mediana y moda", layout="wide")
 
-st.title("Tendencia central: media, mediana y moda — con sesgo y atipicos")
-st.caption("Explora como cambian la media, la mediana y la moda dependiendo de la forma de la distribucion, el sesgo y la presencia de valores atipicos.")
+st.title("📊 Tendencia central: media, mediana y moda")
+st.caption("Explora cómo cambian la media, la mediana y la moda según la forma de la distribución y el sesgo.")
 
+# -----------------------------
+# Controles
+# -----------------------------
 with st.sidebar:
-    st.header("Configuracion")
-    data_mode = st.radio("Fuente de datos", ["Generar datos sinteticos", "Cargar archivo (CSV)"], index=0)
-    np.random.seed(st.number_input("Semilla aleatoria", min_value=0, max_value=10000, value=42, step=1))
+    st.header("⚙️ Configuración de datos")
+    dist = st.selectbox(
+        "Tipo de distribución",
+        [
+            "Normal",
+            "Uniforme",
+            "Sesgada a la derecha",
+            "Sesgada a la izquierda",
+        ],
+        index=0
+    )
 
-    if data_mode == "Generar datos sinteticos":
-        dist = st.selectbox(
-            "Tipo de distribucion",
-            [
-                "Normal",
-                "Sesgada a la derecha (lognormal)",
-                "Sesgada a la izquierda (lognormal invertida)",
-                "Uniforme",
-                "Bimodal (mixtura de 2 normales)",
-                "Normal + atipico(s)"
-            ],
-            index=0
-        )
-        n = st.slider("n (tamano de muestra)", min_value=20, max_value=5000, value=500, step=10)
+    n = st.slider("n (tamaño de muestra)", min_value=20, max_value=5000, value=500, step=10)
 
-        if dist in ["Normal", "Normal + atipico(s)"]:
-            mu = st.number_input("Media objetivo (mu)", value=50.0, step=1.0)
-            sigma = st.number_input("Desviacion estandar (sigma)", value=10.0, step=1.0, min_value=0.1)
-        elif dist in ["Sesgada a la derecha (lognormal)", "Sesgada a la izquierda (lognormal invertida)"]:
-            mu = st.number_input("Parametro mu de la lognormal (en log-espacio)", value=3.7, step=0.1)
-            sigma = st.number_input("Parametro sigma de la lognormal (en log-espacio)", value=0.5, step=0.05, min_value=0.05)
-        elif dist == "Uniforme":
-            a = st.number_input("Minimo (a)", value=0.0, step=1.0)
-            b = st.number_input("Maximo (b)", value=100.0, step=1.0)
-            if b <= a:
-                st.warning("El maximo (b) debe ser mayor que el minimo (a). Ajusta los valores.")
-        elif dist == "Bimodal (mixtura de 2 normales)":
-            mu1 = st.number_input("Media 1 (mu1)", value=40.0, step=1.0)
-            sigma1 = st.number_input("Desviacion 1 (sigma1)", value=8.0, step=0.5, min_value=0.1)
-            mu2 = st.number_input("Media 2 (mu2)", value=65.0, step=1.0)
-            sigma2 = st.number_input("Desviacion 2 (sigma2)", value=6.0, step=0.5, min_value=0.1)
-            weight = st.slider("Peso de la componente 1 (w)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
-
-        # Atipicos solo si corresponde
-        add_outliers = False
-        if dist in ["Normal + atipico(s)"]:
-            add_outliers = st.checkbox("Agregar atipico(s)", value=True)
-            outlier_value = st.number_input("Valor de atipico", value=200.0, step=1.0)
-            outlier_count = st.slider("Cantidad de atipicos", min_value=1, max_value=50, value=3, step=1)
-
-    else:
-        uploaded = st.file_uploader("Sube un CSV con una columna llamada 'valor' o selecciona la columna a usar.", type=["csv"])
-
-# --- Generacion / carga de datos ---
-data = None
-source_msg = ""
-if data_mode == "Generar datos sinteticos":
     if dist == "Normal":
-        data = np.random.normal(mu, sigma, n)
-    elif dist == "Normal + atipico(s)":
-        base = np.random.normal(mu, sigma, n)
-        if add_outliers:
-            base = np.concatenate([base, np.full(outlier_count, outlier_value)])
-        data = base
-    elif dist == "Sesgada a la derecha (lognormal)":
-        data = np.random.lognormal(mean=mu, sigma=sigma, size=n)
-    elif dist == "Sesgada a la izquierda (lognormal invertida)":
-        data = -np.random.lognormal(mean=mu, sigma=sigma, size=n)
-        data = data - data.min()  # desplazar a positivos si se desea, pero aqui dejamos posibles negativos
+        mu = st.number_input("Media (μ)", value=50.0, step=1.0)
+        sigma = st.number_input("Desviación estándar (σ)", value=10.0, step=0.5, min_value=0.1)
     elif dist == "Uniforme":
-        b_eff = b if 'b' in locals() else 100.0
-        a_eff = a if 'a' in locals() else 0.0
-        data = np.random.uniform(a_eff, b_eff, n)
-    elif dist == "Bimodal (mixtura de 2 normales)":
-        k = int(n * weight)
-        comp1 = np.random.normal(mu1, sigma1, k)
-        comp2 = np.random.normal(mu2, sigma2, n - k)
-        data = np.concatenate([comp1, comp2])
-    source_msg = f"Datos sinteticos • {dist}"
-else:
-    if uploaded is not None:
-        df = pd.read_csv(uploaded)
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        if 'valor' in df.columns:
-            series = df['valor'].dropna().astype(float)
-        elif len(numeric_cols) >= 1:
-            col = st.selectbox("Selecciona la columna numerica", numeric_cols, index=0, key="colsel")
-            series = df[col].dropna().astype(float)
-        else:
-            st.error("El CSV no tiene columnas numericas. Agrega una columna 'valor' o numeros.")
-            st.stop()
-        data = series.values
-        source_msg = f"Datos de archivo • {uploaded.name}"
-    else:
-        st.info("Sube un archivo CSV para continuar.")
+        a = st.number_input("Mínimo (a)", value=0.0, step=1.0)
+        b = st.number_input("Máximo (b)", value=100.0, step=1.0)
+        if b <= a:
+            st.warning("El máximo (b) debe ser mayor que el mínimo (a). Ajusta los valores.")
+    elif dist in ["Sesgada a la derecha", "Sesgada a la izquierda"]:
+        skew_intensity = st.slider(
+            "Intensidad de sesgo (baja → alta)",
+            min_value=0.1, max_value=1.5, value=0.6, step=0.05,
+            help="Controla cuán asimétrica es la distribución."
+        )
+        # Centro objetivo solo para que no 'se vaya' muy lejos al graficar
+        centro = st.number_input("Centro aproximado (para ubicar la masa principal)", value=50.0, step=1.0)
+
+# -----------------------------
+# Generación de datos
+# -----------------------------
+if dist == "Normal":
+    data = np.random.normal(mu, sigma, n)
+
+elif dist == "Uniforme":
+    a_eff = a
+    b_eff = b
+    if b_eff <= a_eff:
         st.stop()
+    data = np.random.uniform(a_eff, b_eff, n)
+
+elif dist == "Sesgada a la derecha":
+    # Lognormal con media log=0 y sigma=skew_intensity, luego reescalamos al 'centro' indicado
+    raw = np.random.lognormal(mean=0.0, sigma=skew_intensity, size=n)
+    # centramos cerca de 'centro' manteniendo forma (ajuste lineal a [centro-20, centro+20])
+    lo, hi = np.percentile(raw, [5, 95])
+    span = max(hi - lo, 1e-6)
+    data = (raw - lo) / span * 40 + (centro - 20)
+
+elif dist == "Sesgada a la izquierda":
+    # Negativo de lognormal para sesgo a la izquierda, luego reescalamos alrededor de 'centro'
+    raw = -np.random.lognormal(mean=0.0, sigma=skew_intensity, size=n)
+    lo, hi = np.percentile(raw, [5, 95])
+    span = max(hi - lo, 1e-6)
+    data = (raw - lo) / span * 40 + (centro - 20)
 
 data = np.array(data, dtype=float)
 n_obs = len(data)
@@ -107,11 +79,13 @@ if n_obs == 0:
     st.error("No hay datos para mostrar.")
     st.stop()
 
-# --- Calculo de media, mediana, moda (estimada) ---
+# -----------------------------
+# Cálculos de tendencia central
+# -----------------------------
 media = float(np.mean(data))
 mediana = float(np.median(data))
 
-# Moda para datos continuos: aproximamos con KDE o histograma
+# Moda aproximada para datos continuos por KDE (respaldo: histograma)
 try:
     kde = gaussian_kde(data)
     xs = np.linspace(np.min(data), np.max(data), 1024)
@@ -119,16 +93,21 @@ try:
     moda_x = float(xs[np.argmax(dens)])
     moda_method = "KDE"
 except Exception:
-    # Respaldo: histograma
     counts, bins = np.histogram(data, bins="auto")
     centers = 0.5 * (bins[:-1] + bins[1:])
     moda_x = float(centers[np.argmax(counts)])
     moda_method = "Histograma"
 
+# Sesgo (skewness) e IQR para contextualizar
 sesgo = float(skew(data))
+q1, q3 = np.percentile(data, [25, 75])
+iqr = float(q3 - q1) if q3 > q1 else float(np.std(data))
+diff_mm = media - mediana
 
-# --- Grafico interactivo ---
-nbins = int(np.clip(np.sqrt(n_obs), 10, 80))  # regla simple: ~sqrt(n)
+# -----------------------------
+# Gráfico
+# -----------------------------
+nbins = int(np.clip(np.sqrt(n_obs), 10, 80))  # regla ~sqrt(n)
 fig = go.Figure()
 
 fig.add_trace(go.Histogram(
@@ -139,64 +118,86 @@ fig.add_trace(go.Histogram(
     opacity=0.6
 ))
 
-# Suavizado con KDE (si posible)
+# KDE si es posible
 try:
-    xs = np.linspace(np.min(data), np.max(data), 512)
-    kde = gaussian_kde(data)
-    dens = kde(xs)
-    fig.add_trace(go.Scatter(x=xs, y=dens, mode="lines", name="Densidad (KDE)"))
+    xs_plot = np.linspace(np.min(data), np.max(data), 512)
+    kde_plot = gaussian_kde(data)
+    dens_plot = kde_plot(xs_plot)
+    fig.add_trace(go.Scatter(x=xs_plot, y=dens_plot, mode="lines", name="Densidad (KDE)"))
 except Exception:
     pass
 
-# Lineas verticales de media, mediana, moda
+# Líneas verticales
 fig.add_vline(x=media, line_width=2, line_dash="dash", annotation_text=f"Media: {media:.2f}", annotation_position="top")
 fig.add_vline(x=mediana, line_width=2, line_dash="dash", annotation_text=f"Mediana: {mediana:.2f}", annotation_position="top")
 fig.add_vline(x=moda_x, line_width=2, line_dash="dash", annotation_text=f"Moda*: {moda_x:.2f}", annotation_position="top")
 
 fig.update_layout(
     bargap=0.05,
-    title=f"Distribucion ({source_msg}) — n = {n_obs}",
+    title=f"Distribución — n = {n_obs}",
     xaxis_title="Valor",
     yaxis_title="Densidad",
     legend_title="Capas",
 )
 
+# -----------------------------
+# Layout y métricas
+# -----------------------------
 col1, col2 = st.columns([2, 1], gap="large")
 
 with col1:
     st.plotly_chart(fig, use_container_width=True)
 
 with col2:
-    st.subheader("Estadisticos")
-    st.metric("Media (x-bar)", f"{media:,.3f}")
+    st.subheader("📌 Estadísticos")
+    st.metric("Media (x̄)", f"{media:,.3f}")
     st.metric("Mediana (Q2)", f"{mediana:,.3f}")
     st.metric("Moda* (aprox.)", f"{moda_x:,.3f}")
     st.metric("Sesgo (skewness)", f"{sesgo:,.3f}")
     st.caption("*En datos continuos la moda se estima por KDE o histograma (pico de mayor densidad).")
 
-    # Mensaje sobre el orden tipico segun el sesgo
-    if sesgo > 0.1:
-        st.info("Distribucion sesgada a la derecha (cola hacia valores grandes). Suele cumplirse: Moda < Mediana < Media.")
-    elif sesgo < -0.1:
-        st.info("Distribucion sesgada a la izquierda (cola hacia valores pequenos). Suele cumplirse: Media < Mediana < Moda.")
-    else:
-        st.info("Distribucion aproximadamente simetrica. Suele cumplirse: Media ~ Mediana ~ Moda.")
-
+# -----------------------------
+# Interpretación guiada (dinámica)
+# -----------------------------
 st.markdown("---")
-with st.expander("Que nos dice cada medida?"):
-    st.markdown(
-        "- Media: punto de equilibrio que se ajusta a todos los valores. Es sensible a atipicos.\n"
-        "- Mediana: el centro de los datos (50% abajo / 50% arriba). Es robusta a atipicos.\n"
-        "- Moda: el valor (o zona) mas frecuente. En distribuciones multimodales puede haber varias modas.\n"
-        "- Sesgo: indica la asimetria. Positivo -> cola a la derecha; negativo -> cola a la izquierda."
-    )
+st.subheader("🧠 ¿Qué nos dicen tus medidas *en estos datos*?")
+interpretaciones = []
 
-with st.expander("Actividades sugeridas para clase"):
-    st.markdown(
-        "1) Genera una normal y agrega atipicos extremos. Compara como cambia la media vs. la mediana.\n"
-        "2) Usa la opcion Bimodal y discute por que la moda puede ser multiple.\n"
-        "3) Ajusta el sesgo con la lognormal e identifica el orden tipico entre moda, mediana y media.\n"
-        "4) Carga un CSV de tu curso (una columna numerica) y analiza los resultados."
-    )
+# Media vs Mediana
+if abs(diff_mm) < 1e-9:
+    interpretaciones.append("- **Media y mediana son prácticamente iguales** → la distribución parece bastante **simétrica**.")
+elif diff_mm > 0:
+    interpretaciones.append("- **Media > Mediana** → hay más **cola hacia valores grandes** (tendencia a **sesgo a la derecha**).")
+else:
+    interpretaciones.append("- **Media < Mediana** → hay más **cola hacia valores pequeños** (tendencia a **sesgo a la izquierda**).")
 
-st.caption("Hecho en Streamlit • Autor: Tu nombre • Licencia: MIT")
+# Orden típico según sesgo
+if sesgo > 0.1:
+    interpretaciones.append("- Orden típico esperado con sesgo a la derecha: **Moda < Mediana < Media**.")
+elif sesgo < -0.1:
+    interpretaciones.append("- Orden típico esperado con sesgo a la izquierda: **Media < Mediana < Moda**.")
+else:
+    interpretaciones.append("- Orden típico con simetría: **Media ≈ Mediana ≈ Moda**.")
+
+# Magnitud relativa de la diferencia media-mediana respecto al IQR
+if iqr > 0:
+    rel = abs(diff_mm) / iqr
+    if rel < 0.05:
+        interpretaciones.append(f"- La diferencia |Media−Mediana| es **muy pequeña** respecto al IQR ({rel:.2%}) → **asimetría leve**.")
+    elif rel < 0.20:
+        interpretaciones.append(f"- La diferencia |Media−Mediana| es **moderada** respecto al IQR ({rel:.2%}) → **asimetría moderada**.")
+    else:
+        interpretaciones.append(f"- La diferencia |Media−Mediana| es **grande** respecto al IQR ({rel:.2%}) → **asimetría marcada**.")
+
+# Lectura conceptual de cada medida con sus valores
+interpretaciones.append(
+    f"- **Media ({media:.2f})**: punto de *equilibrio* que se ajusta a todos los valores; **sensible** a valores extremos."
+)
+interpretaciones.append(
+    f"- **Mediana ({mediana:.2f})**: el **centro** (50% debajo y 50% arriba); **robusta** ante valores extremos."
+)
+interpretaciones.append(
+    f"- **Moda aprox. ({moda_x:.2f})**: zona de **mayor frecuencia** observada (estimación por {moda_method})."
+)
+
+st.markdown("\n".join(interpretaciones))
