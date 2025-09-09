@@ -3,17 +3,16 @@ import streamlit as st
 import numpy as np
 import plotly.graph_objects as go
 from scipy.stats import gaussian_kde, skew
-import streamlit.components.v1 as components
 import hashlib, json
 
 st.set_page_config(page_title="Tendencia central: media, mediana y moda", layout="wide")
 
 st.title("📊 Tendencia central: media, mediana y moda")
-st.caption("Gráfico 100% responsive: conserva proporciones al reducir el ancho del contenedor (ideal para incrustar en Moodle).")
+st.caption("Gráfico responsive: se ajusta al ancho disponible (ideal para incrustar en Moodle).")
 
-# --------------------------------
+# -----------------------------
 # Sidebar: controles
-# --------------------------------
+# -----------------------------
 with st.sidebar:
     st.header("⚙️ Configuración de datos")
     dist = st.selectbox(
@@ -40,23 +39,17 @@ with st.sidebar:
         centro = st.number_input("Centro aproximado", value=50.0, step=1.0)
         params.update({"skew_intensity": float(skew_intensity), "centro": float(centro)})
 
-    # Tamaño base del lienzo (se usa para la relación de aspecto)
-    base_w = st.slider("Ancho base (px)", 700, 1400, 980, step=10)
-    base_h = st.slider("Alto base (px)", 420, 900, 560, step=10)
-
-# --------------------------------
-# Utilidades
-# --------------------------------
+# -----------------------------
+# Utilidades (RNG determinista)
+# -----------------------------
 def rng_from_params(p: dict):
-    """Crea un RNG determinista a partir de los parámetros (sin mostrar semilla)."""
     s = json.dumps(p, sort_keys=True).encode()
-    seed = int(hashlib.md5(s).hexdigest()[:8], 16)  # 32 bits
+    seed = int(hashlib.md5(s).hexdigest()[:8], 16)
     return np.random.default_rng(seed)
 
 def generate_sample(p: dict) -> np.ndarray:
     r = rng_from_params(p)
     n = p["n"]
-
     if p["dist"] == "Normal":
         data = r.normal(p["mu"], p["sigma"], n)
     elif p["dist"] == "Uniforme":
@@ -71,12 +64,11 @@ def generate_sample(p: dict) -> np.ndarray:
         raw = -r.lognormal(mean=0.0, sigma=p["skew_intensity"], size=n)
         lo, hi = np.percentile(raw, [5, 95]); span = max(hi - lo, 1e-6)
         data = (raw - lo) / span * 40 + (p["centro"] - 20)
-
     return np.array(data, dtype=float)
 
-# --------------------------------
+# -----------------------------
 # Datos y estadísticos
-# --------------------------------
+# -----------------------------
 data = generate_sample(params)
 if data.size == 0:
     st.stop()
@@ -99,22 +91,21 @@ except Exception:
 
 sesgo = float(skew(data))
 
-# --------------------------------
-# Bins y ejes
-# --------------------------------
+# -----------------------------
+# Binning y ejes
+# -----------------------------
 nbins = int(np.clip(np.sqrt(data.size), 10, 80))
 xmin, xmax = float(np.min(data)), float(np.max(data))
-if xmax == xmin:
+if xmax == xmin:  # evita rango cero
     xmax = xmin + 1.0
 
-bin_edges = np.linspace(xmin, xmax, nbins + 1)
-hist_density, _ = np.histogram(data, bins=bin_edges, density=True)
+# Para estabilidad visual usamos densidad
+hist_density, bin_edges = np.histogram(data, bins=nbins, density=True)
 peak_hist = float(hist_density.max()) if len(hist_density) else 1.0
 
-# KDE (pico para estimar rango Y)
 peak_kde = 0.0
 try:
-    xs_dense = np.linspace(xmin, xmax, 1024)
+    xs_dense = np.linspace(xmin, xmax, 512)
     kde_for_peak = gaussian_kde(data)
     dens_for_peak = kde_for_peak(xs_dense)
     peak_kde = float(np.max(dens_for_peak))
@@ -125,67 +116,47 @@ ymax = max(peak_hist, peak_kde) * 1.15
 if ymax <= 0:
     ymax = 1.0
 
-# --------------------------------
-# Figura Plotly (base W/H; responsive via HTML)
-# --------------------------------
+# -----------------------------
+# Figura Plotly (responsive)
+# -----------------------------
 fig = go.Figure()
+
 fig.add_trace(go.Histogram(
     x=data,
+    nbinsx=nbins,
     histnorm="probability density",
-    xbins=dict(start=xmin, end=xmax, size=(xmax - xmin) / nbins),
     name="Frecuencia",
     opacity=0.6
 ))
 if xs_dense is not None:
     fig.add_trace(go.Scatter(x=xs_dense, y=dens_for_peak, mode="lines", name="Densidad (KDE)"))
 
-# Líneas de tendencia central (colores)
+# Líneas verticales con colores
 fig.add_vline(x=media,   line_width=2, line_dash="dash", line_color="red")
 fig.add_vline(x=mediana, line_width=2, line_dash="dash", line_color="blue")
 fig.add_vline(x=moda_x,  line_width=2, line_dash="dash", line_color="green")
 
-# Anotaciones sobre el eje superior (para no encimarse)
+# Anotaciones dentro del área (para no salirse al hacer más chico)
 fig.update_layout(
-    width=base_w, height=base_h, autosize=False,  # base para la relación de aspecto
+    autosize=True,  # 🔑 permite que Plotly/Streamlit lo haga responsive
+    height=420,     # alto base (se ajusta un poco con el contenedor)
     bargap=0.05,
     title=f"Distribución — n = {data.size}",
-    xaxis_title="Valor", yaxis_title="Densidad",
-    margin=dict(l=60, r=80, t=60, b=60),
-    paper_bgcolor="white", plot_bgcolor="white",
+    xaxis_title="Valor",
+    yaxis_title="Densidad",
+    margin=dict(l=50, r=50, t=60, b=50),
+    paper_bgcolor="white",
+    plot_bgcolor="white",
 )
-fig.update_xaxes(range=[xmin, xmax])  # dejamos que se ajuste en responsive manteniendo este rango
-fig.update_yaxes(range=[0, ymax])
+fig.update_xaxes(range=[xmin, xmax])       # mantenemos el mismo rango de datos
+fig.update_yaxes(range=[0, ymax])          # y el mismo rango de densidad
 
-# --------------------------------
-# HTML responsive (mantiene proporciones al reducir ancho)
-# --------------------------------
-# Relación de aspecto (alto/ancho) en porcentaje para padding-top
-ratio_pct = (base_h / base_w) * 100.0
+# 🔑 Render responsive dentro de Streamlit (usa el ancho del contenedor)
+st.plotly_chart(fig, use_container_width=True, theme=None)
 
-html_inner = fig.to_html(
-    full_html=False,
-    include_plotlyjs="cdn",
-    config={"responsive": True, "displaylogo": False}
-)
-
-# Contenedor con truco de padding-top para altura proporcional
-components.html(
-    f"""
-    <div style="max-width:{base_w}px;margin:0 auto;">
-      <div style="position:relative;width:100%;padding-top:{ratio_pct:.6f}%;">
-        <div style="position:absolute;top:0;left:0;width:100%;height:100%;">
-          {html_inner}
-        </div>
-      </div>
-    </div>
-    """,
-    height=int(base_h + 120),  # alto máximo del contenedor en Streamlit
-    scrolling=False
-)
-
-# --------------------------------
+# -----------------------------
 # Métricas e interpretación
-# --------------------------------
+# -----------------------------
 st.subheader("📌 Estadísticos")
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Media",   f"{media:.2f}")
