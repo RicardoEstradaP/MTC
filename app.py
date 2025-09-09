@@ -79,7 +79,7 @@ if n_obs == 0:
 media = float(np.mean(data))
 mediana = float(np.median(data))
 
-# Moda aproximada
+# Moda aproximada por KDE (respaldo histograma)
 try:
     kde = gaussian_kde(data)
     xs = np.linspace(np.min(data), np.max(data), 1024)
@@ -98,24 +98,56 @@ iqr = float(q3 - q1) if q3 > q1 else float(np.std(data))
 diff_mm = media - mediana
 
 # -----------------------------
+# Bins y escala Y ESTABLES
+# -----------------------------
+# Definir bins fijos con tamaño constante para que no cambien al ajustar ventana
+nbins = int(np.clip(np.sqrt(n_obs), 10, 80))
+xmin, xmax = float(np.min(data)), float(np.max(data))
+if xmax == xmin:
+    xmax = xmin + 1.0  # evita tamaño cero
+
+bin_edges = np.linspace(xmin, xmax, nbins + 1)
+bin_size = (xmax - xmin) / nbins
+
+# Calcular histograma "density=True" manualmente para conocer el pico real
+hist_density, _ = np.histogram(data, bins=bin_edges, density=True)
+peak_hist = float(hist_density.max()) if len(hist_density) else 0.0
+
+# KDE para estimar pico de densidad (si posible)
+peak_kde = 0.0
+try:
+    xs_dense = np.linspace(xmin, xmax, 1024)
+    kde_for_peak = gaussian_kde(data)
+    dens_for_peak = kde_for_peak(xs_dense)
+    peak_kde = float(np.max(dens_for_peak))
+except Exception:
+    pass
+
+ymax = max(peak_hist, peak_kde) * 1.15  # margen 15% por arriba
+if ymax <= 0:
+    ymax = 1.0
+
+# -----------------------------
 # Gráfico
 # -----------------------------
-nbins = int(np.clip(np.sqrt(n_obs), 10, 80))
 fig = go.Figure()
 
+# Histograma con bins fijos y densidad
 fig.add_trace(go.Histogram(
     x=data,
-    nbinsx=nbins,
     histnorm="probability density",
+    xbins=dict(
+        start=xmin,
+        end=xmax,
+        size=bin_size
+    ),
     name="Frecuencia",
     opacity=0.6
 ))
 
+# KDE (suavizado) si se puede
 try:
-    xs_plot = np.linspace(np.min(data), np.max(data), 512)
-    kde_plot = gaussian_kde(data)
-    dens_plot = kde_plot(xs_plot)
-    fig.add_trace(go.Scatter(x=xs_plot, y=dens_plot, mode="lines", name="Densidad (KDE)"))
+    fig.add_trace(go.Scatter(x=xs_dense, y=dens_for_peak, mode="lines", name="Densidad (KDE)"))
 except Exception:
     pass
 
@@ -135,11 +167,15 @@ fig.add_vline(
 
 fig.update_layout(
     bargap=0.05,
+    height=520,  # altura fija para que no "salte" al redimensionar
     title=f"Distribución — n = {n_obs}",
     xaxis_title="Valor",
     yaxis_title="Densidad",
     legend_title="Capas",
 )
+
+# Bloquear el rango Y para que no cambie con el tamaño de la ventana
+fig.update_yaxes(range=[0, ymax])
 
 # -----------------------------
 # Layout y métricas
